@@ -1,0 +1,3 @@
+boot();
+
+console.log(pu);

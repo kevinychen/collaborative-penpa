@@ -1,0 +1,8 @@
+{
+  "name": "collaborative-penpa",
+  "version": "0.1.0",
+  "dependencies": {
+    "jquery": "^3.7.0",
+    "jsdom": "^25.0.1"
+  }
+}
