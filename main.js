@@ -1,5 +1,6 @@
 const { JSDOM } = require("jsdom");
-var fs = require("fs");
+const express = require("express");
+const fs = require("fs");
 
 const dom = new JSDOM(fs.readFileSync("penpa-edit/docs/index.html"));
 const window = dom.window;
@@ -11,7 +12,7 @@ const jQuery = require("jquery")(dom.window);
 const $ = jQuery;
 module = undefined;
 
-const script_sources = [
+const scriptSources = [
     "./js/libs/jquery-3.7.0.min.js",
     "./js/libs/purify.min.js",
     // "./js/libs/CanvasRenderingContext2D.ext.js",
@@ -46,6 +47,22 @@ const script_sources = [
 ];
 
 eval(
-    script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+    scriptSources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
         fs.readFileSync("server.js").toString()
 );
+
+const modifiedClientHtml = fs.readFileSync("penpa-edit/docs/index.html").toString().replace(
+    "</body>",
+    `<script>
+    ${fs.readFileSync("client.js")}
+    </script></body>`
+);
+
+const app = express();
+app.get("/", (_, res) => res.redirect("/penpa-edit/docs/index.html"));
+app.get("/penpa-edit/docs/index.html", (_, res) => {
+    res.type("html");
+    res.send(modifiedClientHtml);
+});
+app.use("/penpa-edit", express.static("penpa-edit"));
+app.listen(5000, () => console.log("Starting server"));
