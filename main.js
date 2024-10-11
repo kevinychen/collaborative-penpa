@@ -1,8 +1,10 @@
 const { JSDOM } = require("jsdom");
 const express = require("express");
+const expressWs = require("express-ws");
 const fs = require("fs");
 
-const dom = new JSDOM(fs.readFileSync("penpa-edit/docs/index.html"));
+const clientHtml = fs.readFileSync("penpa-edit/docs/index.html");
+const dom = new JSDOM(clientHtml);
 const window = dom.window;
 const document = window.document;
 const Element = window.Element;
@@ -46,23 +48,14 @@ const scriptSources = [
     "./js/translate.js",
 ];
 
-eval(
-    scriptSources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
-        fs.readFileSync("server.js").toString()
-);
-
-const modifiedClientHtml = fs.readFileSync("penpa-edit/docs/index.html").toString().replace(
+const modifiedClientHtml = clientHtml.toString().replace(
     "</body>",
     `<script>
     ${fs.readFileSync("client.js")}
     </script></body>`
 );
 
-const app = express();
-app.get("/", (_, res) => res.redirect("/penpa-edit/docs/index.html"));
-app.get("/penpa-edit/docs/index.html", (_, res) => {
-    res.type("html");
-    res.send(modifiedClientHtml);
-});
-app.use("/penpa-edit", express.static("penpa-edit"));
-app.listen(5000, () => console.log("Starting server"));
+eval(
+    scriptSources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+        fs.readFileSync("server.js").toString()
+);
