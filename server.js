@@ -3,13 +3,6 @@ boot();
 
 $.fn.toggleSelect2 = () => {};
 
-// pu.mouse_mode = "down_left";
-// pu.mouse_click = 0;
-// pu.mouse_click_last = 1;
-// pu.mouseevent(38, 38, 30);
-
-// console.log(pu.pu_q.surface);
-
 const clients = {};
 const puzzles = {};
 
@@ -53,24 +46,19 @@ app.ws("/ws", ws => {
                 return;
             }
             pu = puzzle.pu;
-            console.log(msg);
+            // console.log(msg);
             pu.mode.qa = msg.mode;
-            pu[msg.mode].command_redo.push(msg.pu);
-            pu[msg.mode + "_col"].command_redo.push(msg.pu_col);
-            pu.redo();
+            for (const record of msg.records) {
+                pu[msg.mode].command_redo.push(record.pu);
+                pu[msg.mode + "_col"].command_redo.push(record.pu_col);
+                pu.redo();
+            }
             puzzle.clients.forEach(client => {
                 if (client.readyState === client.OPEN) {
-                    client.send(
-                        JSON.stringify({
-                            operation: "update",
-                            puzzleId: msg.puzzleId,
-                            mode: msg.mode,
-                            pu: msg.pu,
-                            pu_col: msg.pu_col,
-                        })
-                    );
+                    client.send(JSON.stringify(msg));
                 }
             });
+            // console.log(pu.maketext().replace("about:blank", "http://x/penpa-edit/"));
         } else {
             console.log("Unknown message from client:", msg);
         }

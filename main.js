@@ -4,6 +4,8 @@ const expressWs = require("express-ws");
 const fs = require("fs");
 
 const clientHtml = fs.readFileSync("penpa-edit/docs/index.html");
+
+// Hacks to load penpa-edit on NodeJS server side
 const dom = new JSDOM(clientHtml);
 const window = dom.window;
 const document = window.document;
@@ -15,7 +17,8 @@ const $ = jQuery;
 const CanvasRenderingContext2D = undefined;
 module = undefined;
 
-const sources = [
+// Load same list of Javascript files as penpa-edit's index.html
+const script_sources = [
     "./js/libs/jquery-3.7.0.min.js",
     "./js/libs/purify.min.js",
     "./js/libs/CanvasRenderingContext2D.ext.js",
@@ -57,6 +60,6 @@ const modifiedClientHtml = clientHtml.toString().replace(
 );
 
 eval(
-    sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+    script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
         fs.readFileSync("server.js").toString()
 );
