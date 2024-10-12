@@ -3,6 +3,7 @@ const ws = new WebSocket("ws://" + location.host + "/ws");
 const randomId = () => (1 + Math.random()).toString(36).substring(2);
 
 let puzzleId = "KYC";
+
 const localChanges = [];
 
 ws.addEventListener("open", () => {
@@ -15,37 +16,42 @@ ws.addEventListener("message", event => {
         return;
     }
 
-    if (msg.operation === 'sync') {
+    if (msg.operation === "sync") {
         import_url(msg.url);
+
+        pu.old_record = pu.record;
+        pu.record = function (...args) {
+            pu.old_record(...args);
+            pu.undo();
+            const mode = pu.mode.qa;
+            const change = {
+                mode,
+                pu: pu[mode].command_redo.pop(),
+                pu_col: pu[mode + "_col"].command_redo.pop(),
+            };
+            pu[mode].command_redo.push(change.pu);
+            pu[mode + "_col"].command_redo.push(change.pu_col);
+            console.log(change);
+            pu.redo();
+            localChanges.push(change);
+            ws.send(
+                JSON.stringify({
+                    operation: "update",
+                    puzzleId,
+                    ...change,
+                })
+            );
+        };
     } else {
         console.log("Unknown message from server:", msg);
     }
 });
 
 window.addEventListener("load", () => {
-    ws.send(JSON.stringify({
-        operation: "join",
-        puzzleId,
-    }));
-    // const oldCreateNewboard = create_newboard;
-    // create_newboard = function () {
-    //     const change = {
-    //         id: randomId(),
-    //         operation: 'create_newboard',
-    //         size: UserSettings.displaysize,
-    //         mode: pu.mode,
-    //         gridtype: UserSettings.gridtype,
-    //     };
-    //     localChanges
-    //     ws.send(
-
-    //     })
-    //     oldCreateNewboard();
-    // };
+    ws.send(
+        JSON.stringify({
+            operation: "join",
+            puzzleId,
+        })
+    );
 });
-
-// document.addEventListener("click", () => {
-//     const message = "Hello from client!";
-//     console.log("Sending:", message);
-//     ws.send(message);
-// });
