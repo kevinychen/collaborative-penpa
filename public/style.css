@@ -1,3 +1,13 @@
+#main-menu-button {
+    position: fixed;
+    top: 36px;
+    left: 10px;
+    padding: 10px 20px;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 9999;
+}
+
 #connecting-overlay {
     position: fixed;
     top: 0;

@@ -1,5 +1,6 @@
 const randomId = () => (1 + Math.random()).toString(36).substring(2);
 
+const mainMenuButton = document.createElement("button");
 const connectingOverlay = document.createElement("div");
 const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
 const ws = new WebSocket("ws://" + location.host + "/ws");
@@ -110,6 +111,11 @@ ws.addEventListener("message", event => {
 });
 
 window.addEventListener("load", () => {
+    mainMenuButton.id = "main-menu-button";
+    mainMenuButton.textContent = "Main menu";
+    mainMenuButton.onclick = () => (window.location.href = "/");
+    document.body.appendChild(mainMenuButton);
+
     connectingOverlay.id = "connecting-overlay";
     connectingOverlay.innerHTML = `
         <div>
