@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Collaborative Penpa</title>
+    <meta charset="utf-8" />
+    <meta name="description" content="Collaborative web application to create and solve Sudokus and Puzzles." />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="keywords" content="grid editor, pencil puzzle editor, logic puzzle solving, sudoku editor">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        #puzzle-list {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            padding: 0;
+            list-style-type: none;
+        }
+
+        .puzzle {
+            width: 200px;
+            margin: 10px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            cursor: pointer;
+            transition: box-shadow 0.3s ease;
+        }
+
+        .puzzle:hover {
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .puzzle-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        #create-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        #create-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <ul id="puzzle-list"></ul>
+
+    <button id="create-button">Create new puzzle</button>
+
+    <script>
+        function getPuzzleIds() {
+            return JSON.parse(window.localStorage.getItem('puzzles')) || [];
+        }
+
+        function setPuzzleIds(puzzleIds) {
+            window.localStorage.setItem('puzzles', JSON.stringify(puzzleIds));
+        }
+
+        function fetchPuzzles() {
+            const puzzleIds = getPuzzleIds();
+            fetch('/api/puzzles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ puzzleIds })
+            })
+                .then(response => response.json())
+                .then(puzzles => {
+                    const puzzleList = document.getElementById('puzzle-list')
+                    puzzleList.innerHTML = '';
+                    for (const [puzzleId, puzzle] of Object.entries(puzzles)) {
+                        const li = document.createElement('li');
+                        li.className = 'puzzle';
+                        li.innerHTML = `<div class="puzzle-name">${puzzle.name}</div>`;
+                        li.onclick = () => window.location.href = `/${puzzleId}/penpa-edit/`
+                        puzzleList.appendChild(li);
+                    }
+                    setPuzzleIds(Object.keys(puzzles));
+                })
+                .catch(error => console.error('Error fetching puzzles:', error));
+        }
+
+        document.getElementById('create-button').addEventListener('click', () => {
+            const name = prompt('Enter the name of the puzzle:', 'My puzzle');
+            if (!name) {
+                return;
+            }
+            fetch('/api/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            })
+                .then(response => response.json())
+                .then(response => {
+                    const puzzleIds = getPuzzleIds();
+                    puzzleIds.push(response.puzzleId);
+                    setPuzzleIds(puzzleIds);
+                    fetchPuzzles();
+                })
+                .catch(error => console.error('Error creating puzzle:', error));
+        });
+
+        fetchPuzzles();
+    </script>
+</body>
+
+</html>

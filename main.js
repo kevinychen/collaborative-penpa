@@ -1,6 +1,4 @@
 const { JSDOM } = require("jsdom");
-const express = require("express");
-const expressWs = require("express-ws");
 const fs = require("fs");
 
 const clientHtml = fs.readFileSync("penpa-edit/docs/index.html");
@@ -17,8 +15,9 @@ const $ = jQuery;
 const CanvasRenderingContext2D = undefined;
 module = undefined;
 
-// Load same list of Javascript files as penpa-edit's index.html
-const script_sources = [
+// Load same list of Javascript files as penpa-edit's client index.html
+// https://github.com/swaroopg92/penpa-edit/blob/3f1102e3a9450e731c88e9ac2d17baff0789377a/docs/index.html#L81-L135
+const library_sources = [
     "./js/libs/jquery-3.7.0.min.js",
     "./js/libs/purify.min.js",
     "./js/libs/CanvasRenderingContext2D.ext.js",
@@ -29,7 +28,9 @@ const script_sources = [
     "./js/libs/canvas2svg.js",
     "./js/libs/select2.full.js",
     "./js/libs/gif.js",
+];
 
+const script_sources = [
     "./identity.js",
     "./js/settings.js",
     "./js/interface.js",
@@ -52,14 +53,8 @@ const script_sources = [
     "./js/translate.js",
 ];
 
-const modifiedClientHtml = clientHtml.toString().replace(
-    "</head>",
-    `<script type="text/javascript">
-    ${fs.readFileSync("client.js")}
-    </script></head>`
-);
-
 eval(
-    script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+    library_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+        script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
         fs.readFileSync("server.js").toString()
 );

@@ -2,13 +2,13 @@ const ws = new WebSocket("ws://" + location.host + "/ws");
 
 const randomId = () => (1 + Math.random()).toString(36).substring(2);
 
-let puzzleId = "KYC";
+let puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1]
 
 let localChanges = [];
 let numUnprocessedChanges = 0;
 
 ws.addEventListener("open", () => {
-    console.log("Connected to WebSocket server");
+    console.log("Connected");
 });
 
 ws.addEventListener("message", event => {
@@ -40,13 +40,13 @@ ws.addEventListener("message", event => {
                 const records = [];
                 for (let i = 0; i < numUnprocessedChanges; i++) {
                     records.push({
-                        pu: pu[mode].command_redo.pop(),
-                        pu_col: pu[mode + "_col"].command_redo.pop(),
+                        change: pu[mode].command_redo.pop(),
+                        change_col: pu[mode + "_col"].command_redo.pop(),
                     });
                 }
                 for (let i = numUnprocessedChanges - 1; i >= 0; i--) {
-                    pu[mode].command_redo.push(records[i].pu);
-                    pu[mode + "_col"].command_redo.push(records[i].pu_col);
+                    pu[mode].command_redo.push(records[i].change);
+                    pu[mode + "_col"].command_redo.push(records[i].change_col);
                 }
                 const change = {
                     changeId: randomId(),
@@ -59,6 +59,7 @@ ws.addEventListener("message", event => {
                 }
                 pu.processing = false;
                 localChanges.push(change);
+                numUnprocessedChanges = 0;
                 ws.send(
                     JSON.stringify({
                         operation: "update",
@@ -69,9 +70,6 @@ ws.addEventListener("message", event => {
             };
         }
     } else if (msg.operation === "update") {
-        if (msg.puzzleId !== puzzleId) {
-            return;
-        }
         pu.processing = true;
         for (let i = 0; i < numUnprocessedChanges; i++) {
             pu.undo();
@@ -83,8 +81,8 @@ ws.addEventListener("message", event => {
         const oldMode = pu.mode.qa;
         pu.mode.qa = msg.mode;
         for (const record of msg.records) {
-            pu[msg.mode].command_redo.push(record.pu);
-            pu[msg.mode + "_col"].command_redo.push(record.pu_col);
+            pu[msg.mode].command_redo.push(record.change);
+            pu[msg.mode + "_col"].command_redo.push(record.change_col);
             pu.redo();
         }
         pu.mode.qa = oldMode;
