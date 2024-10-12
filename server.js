@@ -13,9 +13,11 @@ expressWs(app);
 // Static files
 const modifiedClientHtml = clientHtml.toString().replace(
     "</head>",
-    `<script type="text/javascript">
+    `<link rel="stylesheet" href="/style.css">
+    <script type="text/javascript">
     ${fs.readFileSync("client.js")}
-    </script></head>`
+    </script>
+    </head>`
 );
 app.get("/:puzzleId/penpa-edit", (_, res) => {
     res.type("html");

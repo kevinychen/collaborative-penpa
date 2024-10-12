@@ -1,15 +1,11 @@
-const ws = new WebSocket("ws://" + location.host + "/ws");
-
 const randomId = () => (1 + Math.random()).toString(36).substring(2);
 
-let puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1]
+const connectingOverlay = document.createElement("div");
+const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
+const ws = new WebSocket("ws://" + location.host + "/ws");
 
 let localChanges = [];
 let numUnprocessedChanges = 0;
-
-ws.addEventListener("open", () => {
-    console.log("Connected");
-});
 
 ws.addEventListener("message", event => {
     const msg = JSON.parse(event.data);
@@ -19,6 +15,7 @@ ws.addEventListener("message", event => {
 
     if (msg.operation === "sync") {
         import_url(msg.url);
+        connectingOverlay.remove();
 
         if (pu.old_record === undefined) {
             pu.old_record = pu.record;
@@ -102,6 +99,17 @@ ws.addEventListener("message", event => {
 });
 
 window.addEventListener("load", () => {
+    connectingOverlay.id = "connecting-overlay";
+    connectingOverlay.innerHTML = `
+      <div>
+        <p>Connecting to server...</p>
+        <div class="lds-default"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        <p>If this message doesn't disappear, this puzzle may have been removed from the server.</p>
+        <button onclick="window.location.href='/'">Main menu</button>
+      </div>
+    `;
+    document.body.appendChild(connectingOverlay);
+
     ws.send(
         JSON.stringify({
             operation: "join",
