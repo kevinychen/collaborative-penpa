@@ -12,12 +12,13 @@ const location = window.location;
 const dataLayer = [];
 const jQuery = require("jquery")(dom.window);
 const $ = jQuery;
+const CanvasRenderingContext2D = undefined;
 module = undefined;
 
-const scriptSources = [
+const sources = [
     "./js/libs/jquery-3.7.0.min.js",
     "./js/libs/purify.min.js",
-    // "./js/libs/CanvasRenderingContext2D.ext.js",
+    "./js/libs/CanvasRenderingContext2D.ext.js",
     "./js/libs/encoding.js",
     "./js/libs/vanillaSelectBox.js",
     "./js/libs/zlib.js",
@@ -49,13 +50,13 @@ const scriptSources = [
 ];
 
 const modifiedClientHtml = clientHtml.toString().replace(
-    "</body>",
-    `<script>
+    "</head>",
+    `<script type="text/javascript">
     ${fs.readFileSync("client.js")}
-    </script></body>`
+    </script></head>`
 );
 
 eval(
-    scriptSources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+    sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
         fs.readFileSync("server.js").toString()
 );
