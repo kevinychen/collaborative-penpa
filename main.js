@@ -14,10 +14,11 @@ jQuery = require("jquery")(window);
 $ = jQuery;
 CanvasRenderingContext2D = undefined;
 module = undefined;
+easytimer = require("easytimer.js");
 
 // Load same list of Javascript files as penpa-edit's client index.html
 // https://github.com/swaroopg92/penpa-edit/blob/3f1102e3a9450e731c88e9ac2d17baff0789377a/docs/index.html#L81-L135
-const library_sources = [
+const script_sources = [
     "./js/libs/jquery-3.7.0.min.js",
     "./js/libs/purify.min.js",
     "./js/libs/CanvasRenderingContext2D.ext.js",
@@ -28,9 +29,7 @@ const library_sources = [
     "./js/libs/canvas2svg.js",
     "./js/libs/select2.full.js",
     "./js/libs/gif.js",
-];
 
-const script_sources = [
     "./identity.js",
     "./js/settings.js",
     "./js/interface.js",
@@ -51,10 +50,13 @@ const script_sources = [
     "./js/general.js",
     "./js/customcolor.js",
     "./js/translate.js",
+
+    "./js/timer.js",
+    "./js/conversion.js",
 ];
 
 eval(
-    library_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
-        script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+    script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+        "\n" +
         fs.readFileSync("server.js").toString()
 );
