@@ -87,7 +87,7 @@ app.ws("/ws", ws => {
                 }
                 puzzle.pu.redo();
             } else if (msg.type === "reset") {
-                import_url(msg.changes[0].url);
+                import_url(msg.url);
                 puzzle.pu = pu;
             }
             puzzle.clients.forEach(client => {

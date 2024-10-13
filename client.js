@@ -10,6 +10,7 @@ const localUpdates = [];
 const unprocessedChanges = [];
 let processing = false;
 
+// Intercept the calls that update the Penpa variables, such that they also send the updates to the server.
 function add_general_middleware() {
     if (window.old_make_class !== undefined) {
         return;
@@ -54,20 +55,19 @@ function add_pu_middleware(pu) {
             return;
         }
 
-        if (new Set(unprocessedChanges.map(change => change.type)).size !== 1) {
-            alert("Internal error: multiple change types");
-        }
         const type = unprocessedChanges[0].type;
         const update = {
             changeId: randomId(),
             type,
-            changes: [...unprocessedChanges],
         };
 
         processing = true;
         if (type === "diff") {
+            if (unprocessedChanges.some(change => change.type !== "diff")) {
+                alert("Internal error: unsupported change types");
+                return;
+            }
             const mode = pu.mode.qa;
-            update.mode = mode;
             pu.undo();
             for (const change of unprocessedChanges) {
                 change.diff = pu[mode].command_redo.pop();
@@ -78,8 +78,15 @@ function add_pu_middleware(pu) {
                 pu[mode + "_col"].command_redo.push(change.diff_col);
             }
             pu.redo();
+            update.mode = mode;
+            update.changes = [...unprocessedChanges];
         } else if (type === "reset") {
-            unprocessedChanges[0].url = pu.maketext();
+            if (unprocessedChanges.length > 1) {
+                alert("Internal error: unsupported change types");
+                return;
+            }
+            update.prevUrl = unprocessedChanges[0].prevUrl;
+            update.url = pu.maketext();
         }
         processing = false;
 
@@ -95,6 +102,7 @@ function add_pu_middleware(pu) {
     };
 }
 
+// Handle updates sent from the server
 ws.addEventListener("message", event => {
     const msg = JSON.parse(event.data);
     if (msg.puzzleId !== puzzleId) {
@@ -138,7 +146,7 @@ ws.addEventListener("message", event => {
             pu.redo();
             pu.mode.qa = currentMode;
         } else if (msg.type === "reset") {
-            import_url(msg.changes[0].url);
+            import_url(msg.url);
         }
 
         // Reapply local changes (unless it's what the server just sent)
@@ -160,6 +168,7 @@ ws.addEventListener("message", event => {
     }
 });
 
+// On page load, add some buttons and an overlay that disappears when connected successfully to the server
 window.addEventListener("load", () => {
     mainMenuButton.id = "main-menu-button";
     mainMenuButton.textContent = "Main menu";
