@@ -1,6 +1,10 @@
 {
   "name": "collaborative-penpa",
   "version": "0.1.0",
+  "scripts": {
+    "start": "node main.js",
+    "dev": "nodemon main.js"
+  },
   "dependencies": {
     "canvas": "^2.11.2",
     "easytimer.js": "^4.6.0",

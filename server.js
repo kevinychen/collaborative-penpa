@@ -78,17 +78,24 @@ app.ws("/ws", ws => {
             );
             return;
         } else if (msg.operation === "update") {
-            // console.log(msg);
+            console.log(msg);
             if (msg.type === "diff") {
                 puzzle.pu.mode.qa = msg.mode;
                 for (const change of msg.changes) {
-                    puzzle.pu[msg.mode].command_redo.push(change.diff);
-                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.diff_col);
+                    puzzle.pu[msg.mode].command_redo.push(change.redo);
+                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.redo_col);
                 }
                 puzzle.pu.redo();
             } else if (msg.type === "reset") {
                 import_url(msg.url);
                 puzzle.pu = pu;
+            } else if (msg.type === "undo") {
+                puzzle.pu.mode.qa = msg.mode;
+                for (const change of msg.changes) {
+                    puzzle.pu[msg.mode].command_redo.push(change.undo);
+                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.undo_col);
+                }
+                puzzle.pu.undo();
             }
             puzzle.clients.forEach(client => {
                 if (client.readyState === client.OPEN) {
@@ -106,5 +113,13 @@ app.ws("/ws", ws => {
         }
     });
 });
+
+// TODO remove after testing
+create_newboard();
+puzzles["test"] = {
+    pu,
+    name: "Test puzzle",
+    clients: new Set(),
+};
 
 app.listen(5000, () => console.log("Starting server"));
