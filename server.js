@@ -16,6 +16,7 @@ const modifiedClientHtml = clientHtml.toString().replace(
     "</head>",
     `<link rel="stylesheet" href="/style.css">
     <script type="text/javascript">
+    ${fs.readFileSync("common.js")}
     ${fs.readFileSync("client.js")}
     </script>
     </head>`
@@ -28,8 +29,6 @@ app.use("/:puzzleId/penpa-edit", express.static("penpa-edit/docs"));
 app.use("/", express.static("public"));
 
 // Puzzle API
-const randomId = () => (1 + Math.random()).toString(36).substring(2);
-
 const clients = {};
 const puzzles = {};
 app.use(express.json());
@@ -63,7 +62,7 @@ app.ws("/ws", ws => {
         if (puzzle === undefined) {
             return;
         }
-        if (msg.operation === "join") {
+        if (msg.type === "join") {
             if (clients[ws].puzzleId !== undefined) {
                 puzzles[clients[ws].puzzleId].clients.delete(ws);
             }
@@ -71,32 +70,17 @@ app.ws("/ws", ws => {
             puzzle.clients.add(ws);
             ws.send(
                 JSON.stringify({
-                    operation: "sync",
+                    type: "sync",
                     puzzleId: msg.puzzleId,
                     url: puzzle.pu.maketext().replace("about:blank", "http://x/penpa-edit/"),
                 })
             );
             return;
-        } else if (msg.operation === "update") {
+        } else if (msg.type === "update") {
             console.log(msg);
-            if (msg.type === "diff") {
-                puzzle.pu.mode.qa = msg.mode;
-                for (const change of msg.changes) {
-                    puzzle.pu[msg.mode].command_redo.push(change.redo);
-                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.redo_col);
-                }
-                puzzle.pu.redo();
-            } else if (msg.type === "reset") {
-                import_url(msg.url);
-                puzzle.pu = pu;
-            } else if (msg.type === "undo") {
-                puzzle.pu.mode.qa = msg.mode;
-                for (const change of msg.changes) {
-                    puzzle.pu[msg.mode].command_redo.push(change.undo);
-                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.undo_col);
-                }
-                puzzle.pu.undo();
-            }
+            pu = puzzle.pu;
+            applyUpdate(msg.update);
+            puzzle.pu = pu;
             puzzle.clients.forEach(client => {
                 if (client.readyState === client.OPEN) {
                     client.send(JSON.stringify(msg));

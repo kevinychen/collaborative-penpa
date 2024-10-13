@@ -1,5 +1,3 @@
-const randomId = () => (1 + Math.random()).toString(36).substring(2);
-
 const mainMenuButton = document.createElement("button");
 const connectingOverlay = document.createElement("div");
 const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
@@ -22,31 +20,33 @@ function proxy_makeclass() {
     make_class = function () {
         const newPu = window.old_make_class(...arguments);
         if (!processing) {
-            unprocessedChanges.push({ type: "reset", prevUrl });
+            unprocessedChanges.push("overwrite");
         }
         return proxy_pu(newPu);
     };
 }
 
 function proxy_pu(pu) {
-    const resetMethods = ["reset", "reset_board", "reset_arr", "point_usecheck"];
-    for (const method of resetMethods) {
+    const commandMethods = ["record"];
+    for (const method of commandMethods) {
         pu["old_" + method] = pu[method];
         pu[method] = function () {
             pu["old_" + method](...arguments);
             if (!processing) {
-                unprocessedChanges.push({ type: "reset", prevUrl });
+                unprocessedChanges.push("command");
             }
         };
     }
-
-    pu.old_record = pu.record;
-    pu.record = function () {
-        pu.old_record(...arguments);
-        if (!processing) {
-            unprocessedChanges.push({ type: "diff" });
-        }
-    };
+    const overwriteMethods = ["reset", "reset_board", "reset_arr", "point_usecheck"];
+    for (const method of overwriteMethods) {
+        pu["old_" + method] = pu[method];
+        pu[method] = function () {
+            pu["old_" + method](...arguments);
+            if (!processing) {
+                unprocessedChanges.push("overwrite");
+            }
+        };
+    }
 
     pu.old_redraw = pu.redraw;
     pu.redraw = function (...args) {
@@ -58,52 +58,59 @@ function proxy_pu(pu) {
             return;
         }
 
-        const changeType = unprocessedChanges[0].type;
-        const update = {
-            changeId: randomId(),
-            type: changeType,
-        };
-
         processing = true;
-        if (changeType === "diff") {
-            if (unprocessedChanges.some(change => change.type !== "diff")) {
+        let update;
+        if (unprocessedChanges[0] === "command") {
+            if (unprocessedChanges.some(change => change !== "command")) {
                 throw new Error("Internal error: unsupported change types");
             }
             const mode = pu.mode.qa;
-            for (const change of unprocessedChanges.toReversed()) {
-                change.undo = pu[mode].command_undo.pop();
-                change.undo_col = pu[mode + "_col"].command_undo.pop();
+            const commands = [];
+            for (const _ of unprocessedChanges) {
+                commands.push({});
             }
-            for (const change of unprocessedChanges) {
-                pu[mode].command_undo.push(change.undo);
-                pu[mode + "_col"].command_undo.push(change.undo_col);
+            for (const command of commands.toReversed()) {
+                command.undo = pu[mode].command_undo.pop();
+                command.undo_col = pu[mode + "_col"].command_undo.pop();
+            }
+            for (const command of commands) {
+                pu[mode].command_undo.push(command.undo);
+                pu[mode + "_col"].command_undo.push(command.undo_col);
             }
             pu.undo();
-            for (const change of unprocessedChanges) {
-                change.redo = pu[mode].command_redo.pop();
-                change.redo_col = pu[mode + "_col"].command_redo.pop();
+            for (const command of commands) {
+                command.redo = pu[mode].command_redo.pop();
+                command.redo_col = pu[mode + "_col"].command_redo.pop();
             }
-            for (const change of unprocessedChanges.toReversed()) {
-                pu[mode].command_redo.push(change.redo);
-                pu[mode + "_col"].command_redo.push(change.redo_col);
+            for (const command of commands.toReversed()) {
+                pu[mode].command_redo.push(command.redo);
+                pu[mode + "_col"].command_redo.push(command.redo_col);
             }
             pu.redo();
-            update.mode = mode;
-            update.changes = [...unprocessedChanges];
-        } else if (changeType === "reset") {
-            if (unprocessedChanges.some(change => change.type !== "reset")) {
+            update = {
+                type: "command",
+                changeId: randomId(),
+                mode,
+                commands,
+            };
+        } else if (unprocessedChanges[0] === "overwrite") {
+            if (unprocessedChanges.some(change => change !== "overwrite")) {
                 throw new Error("Internal error: unsupported change types");
             }
-            update.prevUrl = unprocessedChanges[0].prevUrl;
-            update.url = pu.maketext();
+            update = {
+                type: "overwrite",
+                changeId: randomId(),
+                url: pu.maketext(),
+                prevUrl,
+            };
         }
         processing = false;
 
         ws.send(
             JSON.stringify({
-                operation: "update",
+                type: "update",
                 puzzleId,
-                ...update,
+                update,
             })
         );
         localUpdates.push(update);
@@ -124,45 +131,19 @@ function proxy_pu(pu) {
             return;
         }
 
-        const prevChangeType = prevUpdate.type;
-        const update = {
-            changeId: randomId(),
-        };
-
         processing = true;
-        if (prevChangeType === "diff") {
-            for (const change of prevUpdate.changes) {
-                pu[prevUpdate.mode].command_undo.push(change.undo);
-                pu[prevUpdate.mode + "_col"].command_undo.push(change.undo_col);
-            }
-            const currentMode = pu.mode.qa;
-            pu.mode.qa = prevUpdate.mode;
-            pu.undo();
-            pu.mode.qa = currentMode;
-            for (const _ of prevUpdate.changes) {
-                pu[prevUpdate.mode].command_redo.pop();
-                pu[prevUpdate.mode + "_col"].command_redo.pop();
-            }
-            update.type = "undo";
-            update.mode = prevUpdate.mode;
-            update.changes = prevUpdate.changes;
-        } else if (prevChangeType === "reset") {
-            import_url(prevUpdate.prevUrl);
-            update.type = "reset";
-            update.prevUrl = prevUpdate.url;
-            update.url = prevUpdate.prevUrl;
-        }
+        const update = invertUpdate(prevUpdate);
         processing = false;
 
         ws.send(
             JSON.stringify({
-                operation: "update",
+                type: "update",
                 puzzleId,
-                ...update,
+                update,
             })
         );
         localUpdates.push(update);
-        myUpdatesRedoList.push(prevUpdate);
+        myUpdatesRedoList.push(update);
     };
 
     pu.old_redo = pu.redo;
@@ -171,46 +152,24 @@ function proxy_pu(pu) {
             pu.old_redo();
             return;
         }
-        const nextUpdate = myUpdatesRedoList.pop();
-        if (nextUpdate === undefined) {
+        const prevUpdate = myUpdatesRedoList.pop();
+        if (prevUpdate === undefined) {
             return;
         }
 
-        const nextChangeType = nextUpdate.type;
-        const update = {
-            changeId: randomId(),
-        };
-
         processing = true;
-        if (nextChangeType === "diff") {
-            for (const change of nextUpdate.changes.toReversed()) {
-                pu[nextUpdate.mode].command_redo.push(change.redo);
-                pu[nextUpdate.mode + "_col"].command_redo.push(change.redo_col);
-            }
-            const currentMode = pu.mode.qa;
-            pu.mode.qa = nextUpdate.mode;
-            pu.redo();
-            pu.mode.qa = currentMode;
-            update.type = "diff";
-            update.mode = nextUpdate.mode;
-            update.changes = nextUpdate.changes;
-        } else if (nextChangeType === "reset") {
-            import_url(nextUpdate.nextUrl);
-            update.type = "reset";
-            update.prevUrl = nextUpdate.prevUrl;
-            update.url = nextUpdate.url;
-        }
+        const update = invertUpdate(prevUpdate);
         processing = false;
 
         ws.send(
             JSON.stringify({
-                operation: "update",
+                type: "update",
                 puzzleId,
-                ...update,
+                update,
             })
         );
         localUpdates.push(update);
-        myUpdatesUndoList.push(nextUpdate);
+        myUpdatesUndoList.push(update);
     };
 
     return pu;
@@ -225,7 +184,7 @@ ws.addEventListener("message", event => {
 
     // console.log(msg);
     processing = true;
-    if (msg.operation === "sync") {
+    if (msg.type === "sync") {
         proxy_makeclass();
         import_url(msg.url);
         connectingOverlay.remove();
@@ -234,96 +193,28 @@ ws.addEventListener("message", event => {
         if (!puzzleIds.includes(puzzleId)) {
             window.localStorage.setItem("puzzles", JSON.stringify([...puzzleIds, puzzleId]));
         }
-    } else if (msg.operation === "update") {
+    } else if (msg.type === "update") {
         if (unprocessedChanges.length > 0) {
             throw new Error("Internal error: unprocessed changes");
         }
 
         // First, undo local changes
         for (const update of localUpdates.toReversed()) {
-            if (update.type === "diff") {
-                pu.undo();
-            } else if (update.type === "reset") {
-                import_url(update.prevUrl);
-            } else if (update.type === "undo") {
-                for (const change of msg.changes.toReversed()) {
-                    pu[msg.mode].command_redo.push(change.redo);
-                    pu[msg.mode + "_col"].command_redo.push(change.redo_col);
-                }
-                const currentMode = pu.mode.qa;
-                pu.mode.qa = msg.mode;
-                pu.redo();
-                pu.mode.qa = currentMode;
-                for (const _ of msg.changes) {
-                    pu[msg.mode].command_undo.pop();
-                    pu[msg.mode + "_col"].command_undo.pop();
-                }
-            }
+            applyUpdate(invertUpdate(update));
         }
 
         // Apply the server update
-        if (msg.type == "diff") {
-            for (const change of msg.changes.toReversed()) {
-                pu[msg.mode].command_redo.push(change.redo);
-                pu[msg.mode + "_col"].command_redo.push(change.redo_col);
-            }
-            const currentMode = pu.mode.qa;
-            pu.mode.qa = msg.mode;
-            pu.redo();
-            pu.mode.qa = currentMode;
-            for (const _ of msg.changes) {
-                pu[msg.mode].command_undo.pop();
-                pu[msg.mode + "_col"].command_undo.pop();
-            }
-        } else if (msg.type === "reset") {
-            import_url(msg.url);
-        } else if (msg.type === "undo") {
-            for (const change of msg.changes) {
-                pu[msg.mode].command_undo.push(change.undo);
-                pu[msg.mode + "_col"].command_undo.push(change.undo_col);
-            }
-            const currentMode = pu.mode.qa;
-            pu.mode.qa = msg.mode;
-            pu.undo();
-            pu.mode.qa = currentMode;
-            for (const _ of msg.changes) {
-                pu[msg.mode].command_redo.pop();
-                pu[msg.mode + "_col"].command_redo.pop();
-            }
-        }
+        applyUpdate(msg.update);
 
-        // Reapply local changes
+        // Reapply local changes, unless it's the same as the server update
         const localIndex = localUpdates.findIndex(update => update.changeId === msg.changeId);
         if (localIndex > 0) {
             throw new Error("Unexpected server acknowledgement order");
         } else if (localIndex === 0) {
-            const update = localUpdates.shift();
-            if (update.type === "diff") {
-                for (const _ of update.changes) {
-                    pu[update.mode].command_redo.pop();
-                    pu[update.mode + "_col"].command_redo.pop();
-                }
-            }
+            localUpdates.shift();
         }
         for (const update of localUpdates) {
-            if (update.type === "diff") {
-                pu.redo();
-            } else if (update.type === "reset") {
-                import_url(update.url);
-            } else if (update.type === "undo") {
-                for (const change of update.changes) {
-                    pu[update.mode].command_undo.push(change.undo);
-                    pu[update.mode + "_col"].command_undo.push(change.undo_col);
-                }
-                const currentMode = pu.mode.qa;
-                pu.mode.qa = update.mode;
-                pu.undo();
-                pu.mode.qa = currentMode;
-                for (const _ of msg.changes) {
-                    pu[update.mode].command_redo.pop();
-                    pu[update.mode + "_col"].command_redo.pop();
-                }
-            }
+            applyUpdate(update);
         }
 
         pu.redraw();
@@ -356,7 +247,7 @@ window.addEventListener("load", () => {
 
     ws.send(
         JSON.stringify({
-            operation: "join",
+            type: "join",
             puzzleId,
         })
     );

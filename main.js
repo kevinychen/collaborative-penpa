@@ -59,5 +59,6 @@ const script_sources = [
 eval(
     script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
         "\n" +
+        fs.readFileSync("common.js").toString() +
         fs.readFileSync("server.js").toString()
 );
