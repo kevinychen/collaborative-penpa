@@ -4,6 +4,7 @@ const expressWs = require("express-ws");
 // Hacks to run penpa-edit on NodeJS server side
 Zlib = this.Zlib;
 $.fn.toggleSelect2 = () => {};
+md5 = require("md5");
 
 boot();
 
@@ -78,18 +79,22 @@ app.ws("/ws", ws => {
             return;
         } else if (msg.operation === "update") {
             // console.log(msg);
-            puzzle.pu.mode.qa = msg.mode;
-            for (const record of msg.records) {
-                puzzle.pu[msg.mode].command_redo.push(record.change);
-                puzzle.pu[msg.mode + "_col"].command_redo.push(record.change_col);
+            if (msg.type === "diff") {
+                puzzle.pu.mode.qa = msg.mode;
+                for (const change of msg.changes) {
+                    puzzle.pu[msg.mode].command_redo.push(change.diff);
+                    puzzle.pu[msg.mode + "_col"].command_redo.push(change.diff_col);
+                }
                 puzzle.pu.redo();
+            } else if (msg.type === "reset") {
+                import_url(msg.changes[0].url);
+                puzzle.pu = pu;
             }
             puzzle.clients.forEach(client => {
                 if (client.readyState === client.OPEN) {
                     client.send(JSON.stringify(msg));
                 }
             });
-            // console.log(pu.maketext().replace("about:blank", "http://x/penpa-edit/"));
         } else {
             console.log("Unknown message from client:", msg);
         }

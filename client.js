@@ -5,59 +5,91 @@ const connectingOverlay = document.createElement("div");
 const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
 const ws = new WebSocket("ws://" + location.host + "/ws");
 
-let localChanges = [];
-let numUnprocessedChanges = 0;
+const myUpdates = [];
+const localUpdates = [];
+const unprocessedChanges = [];
+let processing = false;
 
-function add_pu_middleware() {
+function add_general_middleware() {
+    if (window.old_make_class !== undefined) {
+        return;
+    }
+
+    window.old_make_class = make_class;
+    make_class = function () {
+        const prevUrl = pu.maketext();
+        const newPu = window.old_make_class(...arguments);
+        if (!processing) {
+            unprocessedChanges.push({ type: "reset", prevUrl });
+        }
+        add_pu_middleware(newPu);
+        return newPu;
+    };
+}
+
+function add_pu_middleware(pu) {
     if (pu.old_record !== undefined) {
         return;
     }
 
+    pu.old_resize_board = pu.resize_board;
+    pu.resize_board = function (side, sign) {
+        pu.old_resize_board(...arguments);
+        unprocessedChanges.push({ type: "resize", side, sign });
+    };
+
     pu.old_record = pu.record;
-    pu.record = function (...args) {
-        pu.old_record(...args);
-        numUnprocessedChanges++;
+    pu.record = function () {
+        pu.old_record(...arguments);
+        unprocessedChanges.push({ type: "diff" });
     };
 
     pu.old_redraw = pu.redraw;
     pu.redraw = function (...args) {
         pu.old_redraw(...args);
-        if (pu.processing) {
+        if (processing) {
             return;
         }
-        pu.processing = true;
-        for (let i = 0; i < numUnprocessedChanges; i++) {
-            pu.undo();
+        if (unprocessedChanges.length === 0) {
+            return;
         }
-        const mode = pu.mode.qa;
-        const records = [];
-        for (let i = 0; i < numUnprocessedChanges; i++) {
-            records.push({
-                change: pu[mode].command_redo.pop(),
-                change_col: pu[mode + "_col"].command_redo.pop(),
-            });
+
+        if (new Set(unprocessedChanges.map(change => change.type)).size !== 1) {
+            alert("Internal error: multiple change types");
         }
-        for (let i = numUnprocessedChanges - 1; i >= 0; i--) {
-            pu[mode].command_redo.push(records[i].change);
-            pu[mode + "_col"].command_redo.push(records[i].change_col);
-        }
-        const change = {
+        const type = unprocessedChanges[0].type;
+        const update = {
             changeId: randomId(),
-            mode,
-            records,
+            type,
+            changes: [...unprocessedChanges],
         };
-        // console.log(JSON.stringify(change));
-        for (let i = 0; i < numUnprocessedChanges; i++) {
+
+        processing = true;
+        if (type === "diff") {
+            const mode = pu.mode.qa;
+            update.mode = mode;
+            pu.undo();
+            for (const change of unprocessedChanges) {
+                change.diff = pu[mode].command_redo.pop();
+                change.diff_col = pu[mode + "_col"].command_redo.pop();
+            }
+            for (const change of unprocessedChanges.toReversed()) {
+                pu[mode].command_redo.push(change.diff);
+                pu[mode + "_col"].command_redo.push(change.diff_col);
+            }
             pu.redo();
+        } else if (type === "reset") {
+            unprocessedChanges[0].url = pu.maketext();
         }
-        pu.processing = false;
-        localChanges.push(change);
-        numUnprocessedChanges = 0;
+        processing = false;
+
+        localUpdates.push(update);
+        unprocessedChanges.length = 0;
         ws.send(
             JSON.stringify({
                 operation: "update",
                 puzzleId,
-                ...change,
+                ...update,
             })
         );
     };
@@ -69,42 +101,60 @@ ws.addEventListener("message", event => {
         return;
     }
 
+    // console.log(msg);
     if (msg.operation === "sync") {
         import_url(msg.url);
         connectingOverlay.remove();
-        add_pu_middleware();
+        add_general_middleware();
+        add_pu_middleware(pu);
 
         const puzzleIds = JSON.parse(window.localStorage.getItem("puzzles")) || [];
         if (!puzzleIds.includes(puzzleId)) {
             window.localStorage.setItem("puzzles", JSON.stringify([...puzzleIds, puzzleId]));
         }
     } else if (msg.operation === "update") {
-        pu.processing = true;
-        for (let i = 0; i < numUnprocessedChanges; i++) {
-            pu.undo();
+        processing = true;
+        if (unprocessedChanges.length > 0) {
+            alert("Internal error: unprocessed changes");
         }
-        for (let i = 0; i < localChanges.length; i++) {
-            pu.undo();
-        }
-        // console.log("apply", msg);
-        const oldMode = pu.mode.qa;
-        pu.mode.qa = msg.mode;
-        for (const record of msg.records) {
-            pu[msg.mode].command_redo.push(record.change);
-            pu[msg.mode + "_col"].command_redo.push(record.change_col);
-            pu.redo();
-        }
-        pu.mode.qa = oldMode;
-        for (let i = 0; i < localChanges.length; i++) {
-            if (localChanges[i] !== msg.changeId) {
-                pu.redo();
+
+        // First, undo local changes
+        for (const update of localUpdates.toReversed()) {
+            if (update.type === "diff") {
+                pu.undo();
+            } else if (update.type === "reset") {
+                import_url(update.prevUrl);
             }
         }
-        for (let i = 0; i < numUnprocessedChanges; i++) {
+
+        // Apply the server update
+        if (msg.type == "diff") {
+            const currentMode = pu.mode.qa;
+            pu.mode.qa = msg.mode;
+            for (const change of msg.changes) {
+                pu[msg.mode].command_redo.push(change.diff);
+                pu[msg.mode + "_col"].command_redo.push(change.diff_col);
+            }
             pu.redo();
+            pu.mode.qa = currentMode;
+        } else if (msg.type === "reset") {
+            import_url(msg.changes[0].url);
         }
-        pu.processing = false;
-        localChanges = localChanges.filter(change => change.changeId !== msg.changeId);
+
+        // Reapply local changes (unless it's what the server just sent)
+        const localIndex = localUpdates.findIndex(update => update.changeId === msg.changeId);
+        if (localIndex !== -1) {
+            localUpdates.splice(localIndex, 1);
+        }
+        for (const update of localUpdates) {
+            if (update.type === "diff") {
+                pu.redo();
+            } else if (update.type === "reset") {
+                import_url(update.url);
+            }
+        }
+
+        processing = false;
     } else {
         console.log("Unknown message from server:", msg);
     }

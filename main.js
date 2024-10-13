@@ -6,13 +6,13 @@ const clientHtml = fs.readFileSync("penpa-edit/docs/index.html");
 // Hacks to load penpa-edit on NodeJS server side
 const dom = new JSDOM(clientHtml);
 const window = dom.window;
-global.document = window.document;
-global.Element = window.Element;
-global.location = window.location;
-global.dataLayer = [];
-global.jQuery = require("jquery")(window);
-global.$ = jQuery;
-global.CanvasRenderingContext2D = undefined;
+document = window.document;
+Element = window.Element;
+location = window.location;
+dataLayer = [];
+jQuery = require("jquery")(window);
+$ = jQuery;
+CanvasRenderingContext2D = undefined;
 module = undefined;
 
 // Load same list of Javascript files as penpa-edit's client index.html
