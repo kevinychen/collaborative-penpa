@@ -15,6 +15,7 @@ $ = jQuery;
 CanvasRenderingContext2D = undefined;
 module = undefined;
 easytimer = require("easytimer.js");
+navigator = { platform: "", userAgent: "" };
 
 // Load same list of Javascript files as penpa-edit's client index.html
 // https://github.com/swaroopg92/penpa-edit/blob/3f1102e3a9450e731c88e9ac2d17baff0789377a/docs/index.html#L81-L135
