@@ -77,7 +77,6 @@ app.ws("/ws", ws => {
             );
             return;
         } else if (msg.type === "update") {
-            console.log(msg);
             pu = puzzle.pu;
             applyUpdate(msg.update);
             puzzle.pu = pu;

@@ -5,8 +5,8 @@ const ws = new WebSocket("ws://" + location.host + "/ws");
 
 const unprocessedChanges = [];
 const localUpdates = [];
-const myUpdatesUndoList = [];
-const myUpdatesRedoList = [];
+const undoList = [];
+const redoList = [];
 let processing = false;
 let prevUrl = undefined;
 
@@ -114,8 +114,8 @@ function proxy_pu(pu) {
             })
         );
         localUpdates.push(update);
-        myUpdatesUndoList.push(update);
-        myUpdatesRedoList.length = 0;
+        undoList.push(update);
+        redoList.length = 0;
         unprocessedChanges.length = 0;
         prevUrl = pu.maketext();
     };
@@ -126,7 +126,7 @@ function proxy_pu(pu) {
             pu.old_undo();
             return;
         }
-        const prevUpdate = myUpdatesUndoList.pop();
+        const prevUpdate = undoList.pop();
         if (prevUpdate === undefined) {
             return;
         }
@@ -143,7 +143,7 @@ function proxy_pu(pu) {
             })
         );
         localUpdates.push(update);
-        myUpdatesRedoList.push(update);
+        redoList.push(update);
     };
 
     pu.old_redo = pu.redo;
@@ -152,7 +152,7 @@ function proxy_pu(pu) {
             pu.old_redo();
             return;
         }
-        const prevUpdate = myUpdatesRedoList.pop();
+        const prevUpdate = redoList.pop();
         if (prevUpdate === undefined) {
             return;
         }
@@ -169,7 +169,12 @@ function proxy_pu(pu) {
             })
         );
         localUpdates.push(update);
-        myUpdatesUndoList.push(update);
+        undoList.push(update);
+    };
+
+    pu.set_redoundocolor = function () {
+        document.getElementById("tb_redo").disabled = redoList.length === 0 ? "disabled" : "";
+        document.getElementById("tb_undo").disabled = undoList.length === 0 ? "disabled" : "";
     };
 
     return pu;
