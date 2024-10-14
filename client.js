@@ -1,4 +1,3 @@
-const mainMenuButton = document.createElement("button");
 const connectingOverlay = document.createElement("div");
 const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
 const ws = new WebSocket("ws://" + location.host + "/ws");
@@ -7,8 +6,16 @@ const unprocessedChanges = [];
 const localUpdates = [];
 const undoList = [];
 const redoList = [];
+let reconnecting = false;
 let processing = false;
 let prevUrl = undefined;
+
+function send(msg) {
+    if (!reconnecting && localUpdates.length > 0 && Date.now() - localUpdates[0].timestamp > 5000) {
+        reconnect();
+    }
+    ws.send(JSON.stringify(msg));
+}
 
 // Intercept the calls that update the Penpa variables, such that they also send the updates to the server.
 function proxy_makeclass() {
@@ -90,6 +97,7 @@ function proxy_pu(pu) {
             update = {
                 type: "command",
                 changeId: randomId(),
+                timestamp: Date.now(),
                 mode,
                 commands,
             };
@@ -100,19 +108,18 @@ function proxy_pu(pu) {
             update = {
                 type: "overwrite",
                 changeId: randomId(),
+                timestamp: Date.now(),
                 url: pu.maketext(),
                 prevUrl,
             };
         }
         processing = false;
 
-        ws.send(
-            JSON.stringify({
-                type: "update",
-                puzzleId,
-                update,
-            })
-        );
+        send({
+            type: "update",
+            puzzleId,
+            update,
+        });
         localUpdates.push(update);
         undoList.push(update);
         redoList.length = 0;
@@ -135,13 +142,11 @@ function proxy_pu(pu) {
         const update = invertUpdate(prevUpdate);
         processing = false;
 
-        ws.send(
-            JSON.stringify({
-                type: "update",
-                puzzleId,
-                update,
-            })
-        );
+        send({
+            type: "update",
+            puzzleId,
+            update,
+        });
         localUpdates.push(update);
         redoList.push(update);
     };
@@ -161,13 +166,11 @@ function proxy_pu(pu) {
         const update = invertUpdate(prevUpdate);
         processing = false;
 
-        ws.send(
-            JSON.stringify({
-                type: "update",
-                puzzleId,
-                update,
-            })
-        );
+        send({
+            type: "update",
+            puzzleId,
+            update,
+        });
         localUpdates.push(update);
         undoList.push(update);
     };
@@ -187,11 +190,11 @@ ws.addEventListener("message", event => {
         return;
     }
 
-    // console.log(msg);
     processing = true;
     if (msg.type === "sync") {
         proxy_makeclass();
         import_url(msg.url);
+        reconnecting = false;
         connectingOverlay.remove();
 
         const puzzleIds = JSON.parse(window.localStorage.getItem("puzzles")) || [];
@@ -212,7 +215,7 @@ ws.addEventListener("message", event => {
         applyUpdate(msg.update);
 
         // Reapply local changes, unless it's the same as the server update
-        const localIndex = localUpdates.findIndex(update => update.changeId === msg.changeId);
+        const localIndex = localUpdates.findIndex(update => update.changeId === msg.update.changeId);
         if (localIndex > 0) {
             throw new Error("Unexpected server acknowledgement order");
         } else if (localIndex === 0) {
@@ -229,13 +232,9 @@ ws.addEventListener("message", event => {
     processing = false;
 });
 
-// On page load, add some buttons and an overlay that disappears when connected successfully to the server
-window.addEventListener("load", () => {
-    mainMenuButton.id = "main-menu-button";
-    mainMenuButton.textContent = "Main menu";
-    mainMenuButton.onclick = () => (window.location.href = "/");
-    document.body.appendChild(mainMenuButton);
-
+// And an overlay that disappears when connected successfully to the server
+function reconnect() {
+    reconnecting = true;
     connectingOverlay.id = "connecting-overlay";
     connectingOverlay.innerHTML = `
         <div>
@@ -250,10 +249,18 @@ window.addEventListener("load", () => {
     `;
     document.body.appendChild(connectingOverlay);
 
-    ws.send(
-        JSON.stringify({
-            type: "join",
-            puzzleId,
-        })
-    );
+    send({
+        type: "join",
+        puzzleId,
+    });
+}
+
+window.addEventListener("load", () => {
+    const mainMenuButton = document.createElement("button");
+    mainMenuButton.id = "main-menu-button";
+    mainMenuButton.textContent = "Main menu";
+    mainMenuButton.onclick = () => (window.location.href = "/");
+    document.body.appendChild(mainMenuButton);
+
+    reconnect();
 });

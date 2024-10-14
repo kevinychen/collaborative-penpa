@@ -54,6 +54,7 @@ function invertUpdate(update) {
         return {
             type: "command-undo",
             changeId: randomId(),
+            timestamp: Date.now(),
             mode: update.mode,
             commands,
         };
@@ -78,6 +79,7 @@ function invertUpdate(update) {
         return {
             type: "command",
             changeId: randomId(),
+            timestamp: Date.now(),
             mode: update.mode,
             commands,
         };
@@ -85,6 +87,7 @@ function invertUpdate(update) {
         return {
             type: "overwrite",
             changeId: randomId(),
+            timestamp: Date.now(),
             url: update.prevUrl,
             prevUrl: pu.maketext(),
         };
