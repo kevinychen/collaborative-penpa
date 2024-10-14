@@ -8,6 +8,8 @@ md5 = require("md5");
 
 boot();
 
+pu.ctx.text = () => {};
+
 const app = express();
 expressWs(app);
 
@@ -105,4 +107,4 @@ puzzles["test"] = {
     clients: new Set(),
 };
 
-app.listen(5000, () => console.log("Starting server"));
+app.listen(8080, () => console.log("Starting server"));
