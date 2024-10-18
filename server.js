@@ -1,110 +1,64 @@
-const express = require("express");
-const expressWs = require("express-ws");
+const { JSDOM } = require("jsdom");
+const fs = require("fs");
 
-// Hacks to run penpa-edit on NodeJS server side
-Zlib = this.Zlib;
-$.fn.toggleSelect2 = () => {};
-md5 = require("md5");
+const clientHtml = fs.readFileSync("penpa-edit/docs/index.html");
 
-boot();
+// Hacks to load penpa-edit on NodeJS server side
+const dom = new JSDOM(clientHtml);
+const window = dom.window;
+document = window.document;
+Element = window.Element;
+location = window.location;
+dataLayer = [];
+jQuery = require("jquery")(window);
+$ = jQuery;
+CanvasRenderingContext2D = undefined;
+module = undefined;
+easytimer = require("easytimer.js");
+navigator = { platform: "", userAgent: "" };
 
-pu.ctx.text = () => {};
+// Load same list of Javascript files as penpa-edit's client index.html
+// https://github.com/swaroopg92/penpa-edit/blob/3f1102e3a9450e731c88e9ac2d17baff0789377a/docs/index.html#L81-L135
+const script_sources = [
+    "./js/libs/jquery-3.7.0.min.js",
+    "./js/libs/purify.min.js",
+    "./js/libs/CanvasRenderingContext2D.ext.js",
+    "./js/libs/encoding.js",
+    "./js/libs/vanillaSelectBox.js",
+    "./js/libs/zlib.js",
+    "./js/libs/spectrum.js",
+    "./js/libs/canvas2svg.js",
+    "./js/libs/select2.full.js",
+    "./js/libs/gif.js",
 
-const app = express();
-expressWs(app);
+    "./identity.js",
+    "./js/settings.js",
+    "./js/interface.js",
+    "./js/conflicts.js",
+    "./js/puzzlink.js",
+    "./js/modes.js",
+    "./js/genre_tags.js",
+    "./js/constraints.js",
+    "./js/main.js",
+    "./js/class_p.js",
+    "./js/class_square.js",
+    "./js/class_hex.js",
+    "./js/class_tri.js",
+    "./js/class_pyramid.js",
+    "./js/class_uniform.js",
+    "./js/class_panel.js",
+    "./js/style.js",
+    "./js/general.js",
+    "./js/customcolor.js",
+    "./js/translate.js",
 
-// Static files
-const modifiedClientHtml = clientHtml.toString().replace(
-    "</head>",
-    `<link rel="stylesheet" href="/style.css">
-    <script type="text/javascript">
-    ${fs.readFileSync("common.js")}
-    ${fs.readFileSync("client.js")}
-    </script>
-    </head>`
+    "./js/timer.js",
+    "./js/conversion.js",
+];
+
+eval(
+    script_sources.map(source => fs.readFileSync(`penpa-edit/docs/${source}`).toString()).join("\n") +
+        "\n" +
+        fs.readFileSync("common.js").toString() +
+        fs.readFileSync("express.js").toString()
 );
-app.get("/:puzzleId/penpa-edit", (_, res) => {
-    res.type("html");
-    res.send(modifiedClientHtml);
-});
-app.use("/:puzzleId/penpa-edit", express.static("penpa-edit/docs"));
-app.use("/", express.static("public"));
-
-// Puzzle API
-const clients = {};
-const puzzles = {};
-app.use(express.json());
-app.post("/api/puzzles", (req, res) => {
-    res.send(
-        Object.fromEntries(
-            req.body.puzzleIds
-                .filter(puzzleId => puzzles[puzzleId] !== undefined)
-                .map(puzzleId => [puzzleId, { name: puzzles[puzzleId].name }])
-        )
-    );
-});
-app.post("/api/create", (req, res) => {
-    const puzzleId = randomId();
-    create_newboard();
-    puzzles[puzzleId] = {
-        pu,
-        name: req.body.name,
-        clients: new Set(),
-    };
-    res.send({ puzzleId });
-});
-
-// Websocket to listen and broadcast puzzle updates
-app.ws("/ws", ws => {
-    clients[ws] = {};
-
-    ws.on("message", msg => {
-        msg = JSON.parse(msg);
-        const puzzle = puzzles[msg.puzzleId];
-        if (puzzle === undefined) {
-            return;
-        }
-        if (msg.type === "join") {
-            if (clients[ws].puzzleId !== undefined) {
-                puzzles[clients[ws].puzzleId].clients.delete(ws);
-            }
-            clients[ws].puzzleId = msg.puzzleId;
-            puzzle.clients.add(ws);
-            ws.send(
-                JSON.stringify({
-                    type: "sync",
-                    puzzleId: msg.puzzleId,
-                    url: puzzle.pu.maketext().replace("about:blank", "http://x/penpa-edit/"),
-                })
-            );
-            return;
-        } else if (msg.type === "update") {
-            pu = puzzle.pu;
-            applyUpdate(msg.update);
-            puzzle.pu = pu;
-            puzzle.clients.forEach(client => {
-                if (client.readyState === client.OPEN) {
-                    client.send(JSON.stringify(msg));
-                }
-            });
-        } else {
-            console.log("Unknown message from client:", msg);
-        }
-    });
-
-    ws.on("close", () => {
-        if (clients[ws].puzzleId !== undefined) {
-            puzzles[clients[ws].puzzleId].clients.delete(ws);
-        }
-    });
-});
-
-// TODO remove after testing
-create_newboard();
-puzzles["test"] = {
-    pu,
-    name: "Test puzzle",
-    clients: new Set(),
-};
-
-app.listen(8080, () => console.log("Starting server"));
