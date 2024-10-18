@@ -1,3 +1,4 @@
+const WebSocket = require("ws");
 const express = require("express");
 const expressWs = require("express-ws");
 
@@ -56,20 +57,26 @@ app.post("/api/create", (req, res) => {
 
 // Websocket to listen and broadcast puzzle updates
 app.ws("/ws", ws => {
-    clients[ws] = {};
+    const clientId = randomId();
+    const client = { ws };
+    clients[clientId] = client;
 
     ws.on("message", msg => {
         msg = JSON.parse(msg);
-        const puzzle = puzzles[msg.puzzleId];
-        if (puzzle === undefined) {
-            return;
-        }
         if (msg.type === "join") {
-            if (clients[ws].puzzleId !== undefined) {
-                puzzles[clients[ws].puzzleId].clients.delete(ws);
+            const puzzle = puzzles[msg.puzzleId];
+            if (puzzle === undefined) {
+                return;
             }
-            clients[ws].puzzleId = msg.puzzleId;
-            puzzle.clients.add(ws);
+            if (client.puzzleId !== undefined) {
+                puzzles[client.puzzleId].clients.delete(clientId);
+            }
+            client.puzzleId = msg.puzzleId;
+            client.index = 0;
+            while ([...puzzle.clients].some(otherId => clients[otherId].index === client.index)) {
+                client.index += 1;
+            }
+            puzzle.clients.add(clientId);
             ws.send(
                 JSON.stringify({
                     type: "sync",
@@ -78,13 +85,22 @@ app.ws("/ws", ws => {
                 })
             );
             return;
-        } else if (msg.type === "update") {
+        }
+
+        const puzzle = puzzles[client.puzzleId];
+        if (msg.type === "update") {
             pu = puzzle.pu;
             applyUpdate(msg.update);
             puzzle.pu = pu;
-            puzzle.clients.forEach(client => {
-                if (client.readyState === client.OPEN) {
-                    client.send(JSON.stringify(msg));
+            puzzle.clients.forEach(otherId => {
+                if (clients[otherId].ws.readyState === WebSocket.OPEN) {
+                    clients[otherId].ws.send(JSON.stringify(msg));
+                }
+            });
+        } else if (msg.type === "cursor") {
+            puzzle.clients.forEach(otherId => {
+                if (clients[otherId].ws.readyState === WebSocket.OPEN && otherId !== clientId) {
+                    clients[otherId].ws.send(JSON.stringify({ ...msg, index: client.index }));
                 }
             });
         } else {
@@ -93,8 +109,14 @@ app.ws("/ws", ws => {
     });
 
     ws.on("close", () => {
-        if (clients[ws].puzzleId !== undefined) {
-            puzzles[clients[ws].puzzleId].clients.delete(ws);
+        const puzzle = puzzles[client.puzzleId];
+        if (puzzle !== undefined) {
+            puzzle.clients.delete(clientId);
+            puzzle.clients.forEach(otherId => {
+                if (clients[otherId].ws.readyState === WebSocket.OPEN) {
+                    clients[otherId].ws.send(JSON.stringify({ type: "cursor", index: client.index }));
+                }
+            });
         }
     });
 });

@@ -38,6 +38,24 @@
     cursor: pointer;
 }
 
+#cursor-layer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#cursor-layer > .cursor {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    z-index: 9999;
+    pointer-events: none;
+    transition: transform 0.1s ease-out;
+}
+
 /* https://loading.io/css/ */
 .lds-default,
 .lds-default div {

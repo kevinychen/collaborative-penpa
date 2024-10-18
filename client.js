@@ -1,5 +1,10 @@
 const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
+
 const connectingOverlay = document.createElement("div");
+let canvasContainer;
+let cursorLayer;
+
+const cursors = {};
 let ws;
 
 const unprocessedChanges = []; /* Changes applied in Penpa but not yet sent to server */
@@ -11,6 +16,86 @@ const redoList = [];
 let prevUrl;
 
 let applyingInternalChanges = false;
+
+// Set up event handlers that send server updates. These should only be run once per page load.
+function initializeWebsocketMessageTriggers() {
+    if (window.collaborativePenpaInitialized) {
+        return;
+    }
+
+    window.collaborativePenpaInitialized = true;
+
+    const oldMethod = make_class;
+    make_class = function () {
+        if (!applyingInternalChanges) {
+            unprocessedChanges.push("overwrite");
+        }
+        const newPu = oldMethod(...arguments);
+        return interceptPenpa(newPu);
+    };
+
+    sendCursorUpdates();
+}
+
+// Intercept the calls that update the Penpa puzzle, such that they also send the updates to the server.
+function interceptPenpa(pu) {
+    const commandMethods = ["record"];
+    for (const method of commandMethods) {
+        const oldMethod = pu[method];
+        pu[method] = function () {
+            if (!applyingInternalChanges) {
+                unprocessedChanges.push("command");
+            }
+            oldMethod.call(pu, ...arguments);
+        };
+    }
+
+    const overwriteMethods = ["reset", "reset_board", "reset_selectedmode", "point_usecheck"];
+    for (const method of overwriteMethods) {
+        const oldMethod = pu[method];
+        pu[method] = function () {
+            if (!applyingInternalChanges) {
+                unprocessedChanges.push("overwrite");
+            }
+            oldMethod.call(pu, ...arguments);
+        };
+    }
+
+    const oldRedraw = pu.redraw;
+    pu.redraw = function () {
+        oldRedraw.call(pu, ...arguments);
+        if (!applyingInternalChanges) {
+            flushUnprocessedChanges();
+        }
+    };
+
+    const oldUndo = pu.undo;
+    pu.undo = function () {
+        if (applyingInternalChanges) {
+            oldUndo.call(pu, ...arguments);
+        } else {
+            unprocessedChanges.push("undo");
+            flushUnprocessedChanges();
+        }
+    };
+
+    const oldRedo = pu.redo;
+    pu.redo = function () {
+        if (applyingInternalChanges) {
+            oldRedo.call(pu, ...arguments);
+        } else {
+            unprocessedChanges.push("redo");
+            flushUnprocessedChanges();
+        }
+    };
+
+    pu.set_redoundocolor = function () {
+        document.getElementById("tb_redo").disabled = redoList.length === 0 ? "disabled" : "";
+        document.getElementById("tb_undo").disabled = undoList.length === 0 ? "disabled" : "";
+    };
+
+    return pu;
+}
 
 // Called after each Penpa update: sends the intercepted udpdate to the server.
 function flushUnprocessedChanges() {
@@ -102,83 +187,8 @@ function flushUnprocessedChanges() {
         ws.close();
         refreshWebsocket();
     } else {
-        ws.send(JSON.stringify({ type: "update", puzzleId, update }));
+        ws.send(JSON.stringify({ type: "update", update }));
     }
-}
-
-// Intercept the calls that update the Penpa variables, such that they also send the updates to the server.
-function intercept_penpa() {
-    if (window.old_make_class !== undefined) {
-        return;
-    }
-
-    window.old_make_class = make_class;
-    make_class = function () {
-        if (!applyingInternalChanges) {
-            unprocessedChanges.push("overwrite");
-        }
-        const newPu = window.old_make_class(...arguments);
-        return intercept_pu(newPu);
-    };
-}
-
-function intercept_pu(pu) {
-    const commandMethods = ["record"];
-    for (const method of commandMethods) {
-        const oldMethod = pu[method];
-        pu[method] = function () {
-            if (!applyingInternalChanges) {
-                unprocessedChanges.push("command");
-            }
-            oldMethod.call(pu, ...arguments);
-        };
-    }
-
-    const overwriteMethods = ["reset", "reset_board", "reset_selectedmode", "point_usecheck"];
-    for (const method of overwriteMethods) {
-        const oldMethod = pu[method];
-        pu[method] = function () {
-            if (!applyingInternalChanges) {
-                unprocessedChanges.push("overwrite");
-            }
-            oldMethod.call(pu, ...arguments);
-        };
-    }
-
-    const oldRedraw = pu.redraw;
-    pu.redraw = function () {
-        oldRedraw.call(pu, ...arguments);
-        if (!applyingInternalChanges) {
-            flushUnprocessedChanges();
-        }
-    };
-
-    const oldUndo = pu.undo;
-    pu.undo = function () {
-        if (applyingInternalChanges) {
-            oldUndo.call(pu, ...arguments);
-        } else {
-            unprocessedChanges.push("undo");
-            flushUnprocessedChanges();
-        }
-    };
-
-    const oldRedo = pu.redo;
-    pu.redo = function () {
-        if (applyingInternalChanges) {
-            oldRedo.call(pu, ...arguments);
-        } else {
-            unprocessedChanges.push("redo");
-            flushUnprocessedChanges();
-        }
-    };
-
-    pu.set_redoundocolor = function () {
-        document.getElementById("tb_redo").disabled = redoList.length === 0 ? "disabled" : "";
-        document.getElementById("tb_undo").disabled = undoList.length === 0 ? "disabled" : "";
-    };
-
-    return pu;
 }
 
 function refreshWebsocket() {
@@ -198,7 +208,7 @@ function refreshWebsocket() {
             </div>
 
             <p>If this message doesn't disappear, this puzzle may have been removed from the server.</p>
-            <p>Here's a <a href=${regularPenpaUrl}>regular Penpa link</a> for this puzzle.</p>
+            <p>Here's a <a href=${regularPenpaUrl} target="_blank">regular Penpa link</a> for this puzzle.</p>
             <button onclick="window.location.href='/'">Main menu</button>
         </div>`;
     document.body.appendChild(connectingOverlay);
@@ -209,19 +219,19 @@ function refreshWebsocket() {
 
     ws.addEventListener("message", event => {
         const msg = JSON.parse(event.data);
-        assert(msg.puzzleId === puzzleId, "Server sent wrong puzzle update");
 
         applyingInternalChanges = true;
         if (msg.type === "sync") {
-            intercept_penpa();
+            // Set up Penpa
+            initializeWebsocketMessageTriggers();
             import_url(msg.url);
 
-            connectingOverlay.remove();
+            // Set up Penpa wrapper variables
             localUpdates.length = 0;
-
             undoList.length = 0;
             redoList.length = 0;
             prevUrl = msg.url;
+            connectingOverlay.remove();
 
             addToLocalStorage(puzzleId);
         } else if (msg.type === "update") {
@@ -246,6 +256,21 @@ function refreshWebsocket() {
             }
 
             pu.redraw();
+        } else if (msg.type === "cursor") {
+            if (msg.pos === undefined) {
+                cursors[msg.index]?.remove();
+                delete cursors[msg.index];
+            } else {
+                if (!cursors[msg.index]) {
+                    const cursor = document.createElement("div");
+                    cursor.className = "cursor";
+                    cursor.style.backgroundColor = COLORS[msg.index];
+                    cursorLayer.appendChild(cursor);
+                    cursors[msg.index] = cursor;
+                }
+                const cursor = cursors[msg.index];
+                cursor.style.transform = `translate(${msg.pos.x}px, ${msg.pos.y}px)`;
+            }
         } else {
             assert(false, "Unexpected message type");
         }
@@ -254,9 +279,19 @@ function refreshWebsocket() {
 }
 
 window.addEventListener("load", () => {
+    canvasContainer = document.getElementById("dvique");
+
+    cursorLayer = document.createElement("div");
+    cursorLayer.id = "cursor-layer";
+    cursorLayer.style.position = "absolute";
+    cursorLayer.style.pointerEvents = "none";
+    canvasContainer.appendChild(cursorLayer);
+
     addMainMenuButton();
     refreshWebsocket();
 });
+
+// Helper functions
 
 function addMainMenuButton() {
     const mainMenuButton = document.createElement("button");
@@ -271,6 +306,22 @@ function addToLocalStorage(puzzleId) {
     if (!puzzleIds.includes(puzzleId)) {
         window.localStorage.setItem("puzzles", JSON.stringify([...puzzleIds, puzzleId]));
     }
+}
+
+function sendCursorUpdates() {
+    let lastPos = undefined;
+
+    canvasContainer.addEventListener("mousemove", e => {
+        if (lastPos === undefined) {
+            setTimeout(() => {
+                if (ws.readyState == WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "cursor", pos: lastPos }));
+                }
+                lastPos = undefined;
+            }, 100);
+        }
+        lastPos = { x: e.pageX - canvasContainer.offsetLeft, y: e.pageY - canvasContainer.offsetTop };
+    });
 }
 
 function assert(value, message = "Internal error") {
