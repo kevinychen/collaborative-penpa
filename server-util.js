@@ -22,6 +22,7 @@ const modifiedClientHtml = clientHtml.toString().replace(
     ${fs.readFileSync("common.js")}
     ${fs.readFileSync("client-util.js")}
     ${fs.readFileSync("client-penpa.js")}
+    ${fs.readFileSync("client-history.js")}
     ${fs.readFileSync("client.js")}
     </script>
     </head>`

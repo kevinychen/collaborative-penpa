@@ -2,12 +2,20 @@ const puzzleId = window.location.pathname.match(/\/([^/]+)\/penpa-edit/)[1];
 
 let initialized = false;
 
+let cursorLayer;
 let canvasContainer;
-const connectingOverlay = makeConnectingOverlay();
-const cursorLayer = makeCursorLayer();
-const mainMenuButton = makeMainMenuButton();
-const cursors = {};
+let overlayContainer;
+let connectingOverlay;
+let regularPenpaUrlLink;
+let historyOverlay;
+let openHistoryButton;
+let restoreButton;
+
+let showingConnectingOverlay = false;
+let showingHistoryOverlay = false;
+
 let ws;
+const cursors = {};
 
 const localUpdates = []; /* Changes sent to server but not yet ack'ed */
 
@@ -32,21 +40,17 @@ function flushUnprocessedChanges(action) {
 }
 
 window.addEventListener("load", () => {
+    cursorLayer = document.createElement("div");
+    cursorLayer.id = "cursor-layer";
+
     canvasContainer = document.getElementById("dvique");
     canvasContainer.appendChild(cursorLayer);
-    document.body.appendChild(mainMenuButton);
-    document.body.appendChild(connectingOverlay);
-    initializeCursorListener();
-    refreshWebsocket();
-});
 
-// UI helper functions
-
-function makeConnectingOverlay() {
-    const connectingOverlay = document.createElement("div");
-    connectingOverlay.id = "connecting-overlay";
-    connectingOverlay.innerHTML = `
-        <div>
+    const overlayLayer = document.createElement("div");
+    overlayLayer.id = "overlay-layer";
+    overlayLayer.innerHTML = `
+    <div id="overlay-container">
+        <div id="connecting-overlay">
             <p>Connecting to server...</p>
             <div class="lds-default">
                 <div></div><div></div><div></div><div></div><div></div><div></div>
@@ -55,30 +59,59 @@ function makeConnectingOverlay() {
 
             <p>If this message doesn't disappear, this puzzle may have been removed from the server.</p>
             <p>Here's a <a id="regular-penpa-url" target="_blank">regular Penpa link</a> for this puzzle.</p>
-            <button onclick="window.location.href='/'">Main menu</button>
-        </div>`;
-    return connectingOverlay;
-}
+        </div>
+        <div id="history-overlay">
+            <button id="restore-button">Restore version</button>
+            <div id="history-list"></div>
+        </div>
+    </div>
+    <div id="menu-buttons">
+        <button id="main-menu-button">Back to all puzzles</button>
+        <button id="open-history-button"></button>
+    </div>
+    `;
+    document.body.appendChild(overlayLayer);
 
-function makeCursor(index) {
-    const cursor = document.createElement("div");
-    cursor.className = "cursor";
-    cursor.style.backgroundColor = COLORS[index];
-    return cursor;
-}
+    overlayContainer = document.getElementById("overlay-container");
+    connectingOverlay = document.getElementById("connecting-overlay");
+    regularPenpaUrlLink = document.getElementById("regular-penpa-url");
+    historyOverlay = document.getElementById("history-overlay");
+    openHistoryButton = document.getElementById("open-history-button");
+    restoreButton = document.getElementById("restore-button");
 
-function makeCursorLayer() {
-    const cursorLayer = document.createElement("div");
-    cursorLayer.id = "cursor-layer";
-    return cursorLayer;
-}
-
-function makeMainMenuButton() {
-    const mainMenuButton = document.createElement("button");
-    mainMenuButton.id = "main-menu-button";
-    mainMenuButton.textContent = "Main menu";
+    const mainMenuButton = document.getElementById("main-menu-button");
     mainMenuButton.onclick = () => (window.location.href = "/");
-    return mainMenuButton;
+
+    updateOverlays();
+    initializeCursorListener();
+    initializeHistoryListener();
+    refreshWebsocket();
+});
+
+function updateOverlays() {
+    if (showingConnectingOverlay || showingHistoryOverlay) {
+        overlayContainer.style.display = "flex";
+        cursorLayer.style.display = "none";
+    } else {
+        overlayContainer.style.display = "none";
+        cursorLayer.style.display = "block";
+    }
+
+    if (showingConnectingOverlay) {
+        connectingOverlay.style.display = "block";
+        restoreButton.disabled = true;
+    } else {
+        connectingOverlay.style.display = "none";
+        restoreButton.disabled = false;
+    }
+
+    if (showingHistoryOverlay) {
+        historyOverlay.style.display = "flex";
+        openHistoryButton.textContent = "Back to edit mode";
+    } else {
+        historyOverlay.style.display = "none";
+        openHistoryButton.textContent = "History";
+    }
 }
 
 function initializeCursorListener() {
@@ -97,14 +130,58 @@ function initializeCursorListener() {
     });
 }
 
+function initializeHistoryListener() {
+    const historyList = document.getElementById("history-list");
+    let originalUrl;
+    let candidateRestoreUrl;
+
+    function updatePenpa(url) {
+        intercepting = false;
+        import_url(url);
+        intercepting = true;
+        regularPenpaUrlLink.href = "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
+    }
+
+    restoreButton.onclick = () => {
+        showingHistoryOverlay = false;
+        updateOverlays();
+
+        // Simulate an action going from originalUrl to the restoreUrl
+        updatePenpa(originalUrl);
+        import_url(candidateRestoreUrl);
+    };
+
+    openHistoryButton.onclick = () => {
+        showingHistoryOverlay = !showingHistoryOverlay;
+        if (showingHistoryOverlay) {
+            originalUrl = pu.maketext();
+            restoreButton.style.display = "none";
+            historyList.innerHTML = "";
+            for (const item of history[puzzleId].toReversed()) {
+                const itemButton = document.createElement("button");
+                itemButton.textContent = new Date(item.timestamp).toLocaleString();
+                itemButton.onclick = () => {
+                    candidateRestoreUrl = item.url;
+                    restoreButton.style.display = "block";
+                    updatePenpa(item.url);
+                };
+                historyList.appendChild(itemButton);
+            }
+        } else {
+            updatePenpa(originalUrl);
+        }
+        updateOverlays();
+    };
+}
+
 function refreshWebsocket() {
     clearTimeout(ws?.timeout);
     ws = new WebSocket("ws://" + location.host + "/ws");
 
     const url = window.pu === undefined ? "" : pu.maketext();
-    document.getElementById("regular-penpa-url").href =
-        "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
-    connectingOverlay.style.display = "flex";
+    regularPenpaUrlLink.href = "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
+    showingConnectingOverlay = true;
+    updateOverlays();
 
     ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "join", puzzleId })));
 
@@ -122,7 +199,8 @@ function refreshWebsocket() {
 
             resetPenpa(msg.url);
             localUpdates.length = 0;
-            connectingOverlay.style.display = "none";
+            showingConnectingOverlay = false;
+            updateOverlays();
 
             addToLocalStorage(puzzleId);
         } else if (msg.type === "update") {
@@ -145,13 +223,17 @@ function refreshWebsocket() {
             }
 
             pu.redraw();
+
+            saveHistory(puzzleId);
         } else if (msg.type === "cursor") {
             if (msg.pos === undefined) {
                 cursors[msg.index]?.remove();
                 delete cursors[msg.index];
             } else {
                 if (!cursors[msg.index]) {
-                    const cursor = makeCursor(msg.index);
+                    const cursor = document.createElement("div");
+                    cursor.className = "cursor";
+                    cursor.style.backgroundColor = COLORS[msg.index];
                     cursorLayer.appendChild(cursor);
                     cursors[msg.index] = cursor;
                 }
