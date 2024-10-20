@@ -31,7 +31,7 @@ function flushUnprocessedChanges(action) {
 
     if (ws.readyState > WebSocket.OPEN) {
         refreshWebsocket();
-    } else if (localUpdates[0].timestamp < Date.now() - 5000) {
+    } else if (localUpdates[0].timestamp < Date.now() - 5 * SECOND) {
         ws.close();
         refreshWebsocket();
     } else {
@@ -128,6 +128,17 @@ function initializeCursorListener() {
         }
         lastPos = { x: e.pageX - canvasContainer.offsetLeft, y: e.pageY - canvasContainer.offsetTop };
     });
+
+    function hideIdleCursors() {
+        const now = Date.now();
+        for (const cursor of Object.values(cursors)) {
+            if (cursor.timestamp < now - 5 * SECOND) {
+                cursor.node.style.display = "none";
+            }
+        }
+        setTimeout(hideIdleCursors, 5 * SECOND);
+    }
+    hideIdleCursors();
 }
 
 function initializeHistoryListener() {
@@ -185,7 +196,7 @@ function refreshWebsocket() {
 
     ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "join", puzzleId })));
 
-    ws.addEventListener("close", () => (ws.timeout = setTimeout(refreshWebsocket, 2000)));
+    ws.addEventListener("close", () => (ws.timeout = setTimeout(refreshWebsocket, 2 * SECOND)));
 
     ws.addEventListener("message", event => {
         const msg = JSON.parse(event.data);
@@ -227,18 +238,19 @@ function refreshWebsocket() {
             saveHistory(puzzleId);
         } else if (msg.type === "cursor") {
             if (msg.pos === undefined) {
-                cursors[msg.index]?.remove();
-                delete cursors[msg.index];
+                if (cursors[msg.index] !== undefined) {
+                    cursors[msg.index].style.display = "none";
+                }
             } else {
                 if (!cursors[msg.index]) {
-                    const cursor = document.createElement("div");
-                    cursor.className = "cursor";
-                    cursor.style.backgroundColor = COLORS[msg.index];
+                    const cursor = makeCursor(msg.index);
                     cursorLayer.appendChild(cursor);
-                    cursors[msg.index] = cursor;
+                    cursors[msg.index] = { node: cursor };
                 }
                 const cursor = cursors[msg.index];
-                cursor.style.transform = `translate(${msg.pos.x}px, ${msg.pos.y}px)`;
+                cursor.timestamp = Date.now();
+                cursor.node.style.display = "block";
+                cursor.node.style.transform = `translate(${msg.pos.x}px, ${msg.pos.y}px)`;
             }
         } else {
             assert(false, "Unexpected message type");

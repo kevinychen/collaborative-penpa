@@ -1,4 +1,3 @@
-const MINUTE = 60000;
 const WEIGHT_LIMIT = 1000000;
 
 const weight = item => item.url.length;
