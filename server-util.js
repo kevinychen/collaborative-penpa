@@ -20,6 +20,8 @@ const modifiedClientHtml = clientHtml.toString().replace(
     `<link rel="stylesheet" href="/style.css">
     <script type="text/javascript">
     ${fs.readFileSync("common.js")}
+    ${fs.readFileSync("client-util.js")}
+    ${fs.readFileSync("client-penpa.js")}
     ${fs.readFileSync("client.js")}
     </script>
     </head>`
@@ -90,7 +92,7 @@ app.ws("/ws", ws => {
         const puzzle = puzzles[client.puzzleId];
         if (msg.type === "update") {
             pu = puzzle.pu;
-            applyUpdate(msg.update);
+            applyAction(msg.update.action);
             puzzle.pu = pu;
             puzzle.clients.forEach(otherId => {
                 if (clients[otherId].ws.readyState === WebSocket.OPEN) {
