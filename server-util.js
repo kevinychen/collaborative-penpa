@@ -10,6 +10,7 @@ md5 = require("md5");
 boot();
 
 pu.ctx.text = () => {};
+panel_pu.ctxf.text = () => {};
 
 const app = express();
 expressWs(app);
@@ -42,7 +43,7 @@ app.post("/api/puzzles", (req, res) => {
     res.send(
         Object.fromEntries(
             req.body.puzzleIds
-                .filter(puzzleId => puzzles[puzzleId] !== undefined)
+                .filter(puzzleId => getPuzzle(puzzleId) !== undefined)
                 .map(puzzleId => [puzzleId, { name: puzzles[puzzleId].name }])
         )
     );
@@ -67,7 +68,7 @@ app.ws("/ws", ws => {
     ws.on("message", msg => {
         msg = JSON.parse(msg);
         if (msg.type === "join") {
-            const puzzle = puzzles[msg.puzzleId];
+            const puzzle = getPuzzle(msg.puzzleId);
             if (puzzle === undefined) {
                 return;
             }
@@ -124,12 +125,32 @@ app.ws("/ws", ws => {
     });
 });
 
-// TODO remove after testing
-create_newboard();
-puzzles["test"] = {
-    pu,
-    name: "Test puzzle",
-    clients: new Set(),
-};
+// DB
+function getPuzzle(puzzleId) {
+    if (puzzles[puzzleId] !== undefined) {
+        return puzzles[puzzleId];
+    }
+    if (/[a-z0-9]+/.test(puzzleId) && fs.existsSync(`data/${puzzleId}`)) {
+        const saved = JSON.parse(fs.readFileSync(`data/${puzzleId}`));
+        create_newboard();
+        import_url(saved.url);
+        return (puzzles[puzzleId] = {
+            pu,
+            name: saved.name,
+            clients: new Set(),
+        });
+    }
+}
+function persistPuzzles() {
+    for (const [puzzleId, puzzle] of Object.entries(puzzles)) {
+        const url = puzzle.pu.maketext().replace("about:blank", "http://x/penpa-edit/");
+        fs.writeFileSync(`data/${puzzleId}`, JSON.stringify({ url, name: puzzle.name }));
+    }
+}
+setInterval(persistPuzzles, 1000 * 60 * 60);
+process.on("SIGINT", () => {
+    persistPuzzles();
+    process.exit();
+});
 
 app.listen(8080, () => console.log("Starting server"));

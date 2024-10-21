@@ -136,9 +136,8 @@ function initializeCursorListener() {
                 cursor.node.style.display = "none";
             }
         }
-        setTimeout(hideIdleCursors, 5 * SECOND);
     }
-    hideIdleCursors();
+    setInterval(hideIdleCursors, 5 * SECOND);
 }
 
 function initializeHistoryListener() {
