@@ -6,7 +6,6 @@ let cursorLayer;
 let canvasContainer;
 let overlayContainer;
 let connectingOverlay;
-let regularPenpaUrlLink;
 let historyOverlay;
 let openHistoryButton;
 let restoreButton;
@@ -18,6 +17,7 @@ let ws;
 const cursors = {};
 
 const localUpdates = []; /* Changes sent to server but not yet ack'ed */
+let savedUrl = undefined; /* The latest puzzle, if currently in the history view */
 
 // Called after each Penpa update: sends the intercepted udpdate to the server.
 function flushUnprocessedChanges(action) {
@@ -58,7 +58,7 @@ window.addEventListener("load", () => {
             </div>
 
             <p>If this message doesn't disappear, this puzzle may have been removed from the server.</p>
-            <p>Here's a <a id="regular-penpa-url" target="_blank">regular Penpa link</a> for this puzzle.</p>
+            <button id="regular-penpa-button">Regular Penpa link</button>
         </div>
         <div id="history-overlay">
             <button id="restore-button">Restore version</button>
@@ -74,10 +74,16 @@ window.addEventListener("load", () => {
 
     overlayContainer = document.getElementById("overlay-container");
     connectingOverlay = document.getElementById("connecting-overlay");
-    regularPenpaUrlLink = document.getElementById("regular-penpa-url");
     historyOverlay = document.getElementById("history-overlay");
     openHistoryButton = document.getElementById("open-history-button");
     restoreButton = document.getElementById("restore-button");
+
+    const regularPenpaButton = document.getElementById("regular-penpa-button");
+    regularPenpaButton.onclick = () => {
+        const url = pu.maketext();
+        const penpaUrl = "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
+        window.open(penpaUrl, "_blank").focus();
+    };
 
     const mainMenuButton = document.getElementById("main-menu-button");
     mainMenuButton.onclick = () => (window.location.href = "/");
@@ -142,54 +148,107 @@ function initializeCursorListener() {
 
 function initializeHistoryListener() {
     const historyList = document.getElementById("history-list");
-    let originalUrl;
-    let candidateRestoreUrl;
-
-    function updatePenpa(url) {
-        intercepting = false;
-        import_url(url);
-        intercepting = true;
-        regularPenpaUrlLink.href = "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
-    }
 
     restoreButton.onclick = () => {
         showingHistoryOverlay = false;
         updateOverlays();
 
-        // Simulate an action going from originalUrl to the restoreUrl
-        updatePenpa(originalUrl);
-        import_url(candidateRestoreUrl);
+        // Simulate an action going from the current url to the restore url
+        const restoreUrl = pu.maketext();
+        intercepting = false;
+        import_url(savedUrl);
+        intercepting = true;
+        savedUrl = undefined;
+        import_url(restoreUrl);
     };
 
     openHistoryButton.onclick = () => {
         showingHistoryOverlay = !showingHistoryOverlay;
         if (showingHistoryOverlay) {
-            originalUrl = pu.maketext();
+            savedUrl = pu.maketext();
             restoreButton.style.display = "none";
             historyList.innerHTML = "";
             for (const item of history[puzzleId].toReversed()) {
                 const itemButton = document.createElement("button");
                 itemButton.textContent = new Date(item.timestamp).toLocaleString();
                 itemButton.onclick = () => {
-                    candidateRestoreUrl = item.url;
                     restoreButton.style.display = "block";
-                    updatePenpa(item.url);
+                    intercepting = false;
+                    import_url(item.url);
+                    intercepting = true;
                 };
                 historyList.appendChild(itemButton);
             }
         } else {
-            updatePenpa(originalUrl);
+            intercepting = false;
+            import_url(savedUrl);
+            intercepting = true;
+            savedUrl = undefined;
         }
         updateOverlays();
     };
+}
+
+function processWebsocketMessage(msg) {
+    if (msg.type === "sync") {
+        if (!initialized) {
+            interceptPenpa(flushUnprocessedChanges);
+            initialized = true;
+        }
+
+        resetPenpa(msg.url);
+        localUpdates.length = 0;
+        showingConnectingOverlay = false;
+        updateOverlays();
+
+        addToLocalStorage(puzzleId);
+    } else if (msg.type === "update") {
+        // First, undo local changes
+        for (const update of localUpdates.toReversed()) {
+            applyAction(invertAction(update.action));
+        }
+
+        // Apply the server update
+        applyAction(msg.update.action);
+
+        // Reapply local changes, unless it's the same as the server update
+        const localIndex = localUpdates.findIndex(update => update.changeId === msg.update.changeId);
+        assert(localIndex <= 0, "Server missed local changes");
+        if (localIndex === 0) {
+            localUpdates.shift();
+        }
+        for (const update of localUpdates) {
+            applyAction(update.action);
+        }
+
+        pu.redraw();
+
+        saveHistory(puzzleId);
+    } else if (msg.type === "cursor") {
+        if (msg.pos === undefined) {
+            if (cursors[msg.index] !== undefined) {
+                cursors[msg.index].style.display = "none";
+            }
+        } else {
+            if (!cursors[msg.index]) {
+                const cursor = makeCursor(msg.index);
+                cursorLayer.appendChild(cursor);
+                cursors[msg.index] = { node: cursor };
+            }
+            const cursor = cursors[msg.index];
+            cursor.timestamp = Date.now();
+            cursor.node.style.display = "block";
+            cursor.node.style.transform = `translate(${msg.pos.x}px, ${msg.pos.y}px)`;
+        }
+    } else {
+        assert(false, "Unexpected message type");
+    }
 }
 
 function refreshWebsocket() {
     clearTimeout(ws?.timeout);
     ws = new WebSocket("ws://" + location.host + "/ws");
 
-    const url = window.pu === undefined ? "" : pu.maketext();
-    regularPenpaUrlLink.href = "https://swaroopg92.github.io/penpa-edit/" + url.substring(url.indexOf("#"));
     showingConnectingOverlay = true;
     updateOverlays();
 
@@ -201,58 +260,14 @@ function refreshWebsocket() {
         const msg = JSON.parse(event.data);
 
         intercepting = false;
-        if (msg.type === "sync") {
-            if (!initialized) {
-                interceptPenpa(flushUnprocessedChanges);
-                initialized = true;
-            }
-
-            resetPenpa(msg.url);
-            localUpdates.length = 0;
-            showingConnectingOverlay = false;
-            updateOverlays();
-
-            addToLocalStorage(puzzleId);
-        } else if (msg.type === "update") {
-            // First, undo local changes
-            for (const update of localUpdates.toReversed()) {
-                applyAction(invertAction(update.action));
-            }
-
-            // Apply the server update
-            applyAction(msg.update.action);
-
-            // Reapply local changes, unless it's the same as the server update
-            const localIndex = localUpdates.findIndex(update => update.changeId === msg.update.changeId);
-            assert(localIndex <= 0, "Server missed local changes");
-            if (localIndex === 0) {
-                localUpdates.shift();
-            }
-            for (const update of localUpdates) {
-                applyAction(update.action);
-            }
-
-            pu.redraw();
-
-            saveHistory(puzzleId);
-        } else if (msg.type === "cursor") {
-            if (msg.pos === undefined) {
-                if (cursors[msg.index] !== undefined) {
-                    cursors[msg.index].style.display = "none";
-                }
-            } else {
-                if (!cursors[msg.index]) {
-                    const cursor = makeCursor(msg.index);
-                    cursorLayer.appendChild(cursor);
-                    cursors[msg.index] = { node: cursor };
-                }
-                const cursor = cursors[msg.index];
-                cursor.timestamp = Date.now();
-                cursor.node.style.display = "block";
-                cursor.node.style.transform = `translate(${msg.pos.x}px, ${msg.pos.y}px)`;
-            }
+        if (savedUrl === undefined) {
+            processWebsocketMessage(msg);
         } else {
-            assert(false, "Unexpected message type");
+            const url = pu.maketext();
+            import_url(savedUrl);
+            processWebsocketMessage(msg);
+            savedUrl = pu.maketext();
+            import_url(url);
         }
         intercepting = true;
     });

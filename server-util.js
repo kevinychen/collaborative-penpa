@@ -10,6 +10,7 @@ md5 = require("md5");
 boot();
 
 pu.ctx.text = () => {};
+pu.ctx.arrow = () => {};
 panel_pu.ctxf.text = () => {};
 
 const app = express();
